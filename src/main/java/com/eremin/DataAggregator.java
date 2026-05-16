@@ -7,110 +7,80 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 class DataAggregator {
-    private final Random random = new Random();
-    private final ExecutorService executor;
+    private static final Random random = new Random();
+    private final ExecutorService executor = Executors.newFixedThreadPool(3);
 
-    public DataAggregator() {
-        this.executor = Executors.newFixedThreadPool(3);
+    private CompletableFuture<Double> fetchPrice(String productName) {
+        return CompletableFuture.supplyAsync(() -> {
+            simulateDelay();
+            simulateError(0.2);
+            if ("Ноутбук".equals(productName)) return 899.99;
+            if ("Смартфон".equals(productName)) return 699.50;
+            return 499.99;
+        }, executor);
     }
 
-    public CompletableFuture<ProductInfo> aggregateProductInfoAsync(String productName) {
-        CompletableFuture<Double> priceFuture = fetchPriceAsync(productName);
-        CompletableFuture<String> descriptionFuture = fetchDescriptionAsync(productName);
-        CompletableFuture<Double> ratingFuture = fetchRatingAsync(productName);
-
-        return CompletableFuture.allOf(priceFuture, descriptionFuture, ratingFuture)
-                .thenApply(v -> {
-                    try {
-                        Double price = priceFuture.get();
-                        String description = descriptionFuture.get();
-                        Double rating = ratingFuture.get();
-
-                        return new ProductInfo(productName, price, description, rating);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to aggregate product info", e);
-                    }
-                });
+    private CompletableFuture<String> fetchDescription(String productName) {
+        return CompletableFuture.supplyAsync(() -> {
+            simulateDelay();
+            simulateError(0.2);
+            if ("Ноутбук".equals(productName)) return "Мощный игровой ноутбук с 16GB RAM и SSD 512GB";
+            if ("Смартфон".equals(productName)) return "Смартфон с отличной камерой и большим экраном";
+            return "Качественный товар";
+        }, executor);
     }
 
-    public ProductInfo aggregateProductInfo(String productName) {
+    private CompletableFuture<Double> fetchRating(String productName) {
+        return CompletableFuture.supplyAsync(() -> {
+            simulateDelay();
+            simulateError(0.2);
+            if ("Ноутбук".equals(productName)) return 4.7;
+            if ("Смартфон".equals(productName)) return 4.5;
+            return 4.0;
+        }, executor);
+    }
+
+    private void simulateDelay() {
         try {
-            return aggregateProductInfoAsync(productName).get();
-        } catch (Exception e) {
-            return new ProductInfo(productName, 0.0, "Нет данных", 0.0);
-        }
-    }
-
-    private CompletableFuture<Double> fetchPriceAsync(String productName) {
-        return CompletableFuture.supplyAsync(() -> fetchPrice(productName), executor)
-                .exceptionally(ex -> {
-                    System.err.println("Error fetching price for " + productName + ": " + ex.getMessage());
-                    return 0.0;
-                });
-    }
-
-    private CompletableFuture<String> fetchDescriptionAsync(String productName) {
-        return CompletableFuture.supplyAsync(() -> fetchDescription(productName), executor)
-                .exceptionally(ex -> {
-                    System.err.println("Error fetching description for " + productName + ": " + ex.getMessage());
-                    return "Нет данных";
-                });
-    }
-
-    private CompletableFuture<Double> fetchRatingAsync(String productName) {
-        return CompletableFuture.supplyAsync(() -> fetchRating(productName), executor)
-                .exceptionally(ex -> {
-                    System.err.println("Error fetching rating for " + productName + ": " + ex.getMessage());
-                    return 0.0;
-                });
-    }
-
-    private double fetchPrice(String productName) {
-        simulateDelay("Price service");
-        simulateRandomFailure("Price service");
-
-        double basePrice = productName.equals("Ноутбук") ? 899.99 : 499.99;
-        double variation = (random.nextDouble() - 0.5) * 200;
-        return Math.round((basePrice + variation) * 100.0) / 100.0;
-    }
-
-    private String fetchDescription(String productName) {
-        simulateDelay("Description service");
-        simulateRandomFailure("Description service");
-
-        return String.format("Высококачественный %s с отличными характеристиками. " +
-                "Идеально подходит для работы и развлечений.", productName);
-    }
-
-    private double fetchRating(String productName) {
-        simulateDelay("Rating service");
-        simulateRandomFailure("Rating service");
-
-        return Math.round((3.5 + random.nextDouble() * 1.5) * 10.0) / 10.0;
-    }
-
-    private void simulateDelay(String serviceName) {
-        try {
-            int delay = 1000 + random.nextInt(2000);
-            System.out.printf("%s: processing %d ms...\n", serviceName, delay);
+            int delay = 1000 + random.nextInt(2001);
             Thread.sleep(delay);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(serviceName + " interrupted", e);
         }
     }
 
-    private void simulateRandomFailure(String serviceName) {
-        if (random.nextDouble() < 0.2) {
-            String[] errors = {
-                    "Connection timeout",
-                    "Service unavailable",
-                    "Internal server error",
-                    "Network error"
-            };
-            String errorMessage = errors[random.nextInt(errors.length)];
-            throw new RuntimeException(serviceName + ": " + errorMessage);
+    private void simulateError(double probability) {
+        if (random.nextDouble() < probability) {
+            throw new RuntimeException("Сервис временно недоступен");
         }
+    }
+
+    public ProductInfo aggregateProductInfo(String productName) {
+        CompletableFuture<Double> priceFuture = fetchPrice(productName)
+                .exceptionally(throwable -> {
+                    System.err.println("Ошибка получения цены для '" + productName + "': " + throwable.getMessage() + ". Используем значение по умолчанию: 0.0");
+                    return 0.0;
+                });
+
+        CompletableFuture<String> descriptionFuture = fetchDescription(productName)
+                .exceptionally(throwable -> {
+                    System.err.println("Ошибка получения описания для '" + productName + "': " + throwable.getMessage() + ". Используем значение по умолчанию: 'Нет данных'");
+                    return "Нет данных";
+                });
+
+        CompletableFuture<Double> ratingFuture = fetchRating(productName)
+                .exceptionally(throwable -> {
+                    System.err.println("Ошибка получения рейтинга для '" + productName + "': " + throwable.getMessage() + ". Используем значение по умолчанию: 0.0");
+                    return 0.0;
+                });
+
+        CompletableFuture<ProductInfo> productFuture = priceFuture
+                .thenCombine(descriptionFuture, (price, description) ->
+                        new Object[]{price, description})
+                .thenCombine(ratingFuture, (combined, rating) ->
+                        new ProductInfo(productName, (Double) combined[0], (String) combined[1], rating));
+
+        return productFuture.join();
     }
 
     public void shutdown() {
